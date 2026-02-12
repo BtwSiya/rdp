@@ -1,38 +1,10 @@
-#
-# Licensed to the Apache Software Foundation (ASF) under one
-# or more contributor license agreements.  See the NOTICE file
-# distributed with this work for additional information
-# regarding copyright ownership.  The ASF licenses this file
-# to you under the Apache License, Version 2.0 (the
-# "License"); you may not use this file except in compliance
-# with the License.  You may obtain a copy of the License at
-#
-#   http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an
-# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-# KIND, either express or implied.  See the License for the
-# specific language governing permissions and limitations
-# under the License.
-#
-
-#
-# Dockerfile for guacamole-client
-#
-
-# Use args for Tomcat image label to allow image builder to choose alternatives
-# such as `--build-arg TOMCAT_JRE=jre8-alpine`
-#
 ARG TOMCAT_VERSION=9
 ARG TOMCAT_JRE=jdk21
 
 # Use official maven image for the build
 FROM maven:3-eclipse-temurin-21 AS builder
 
-# Use Mozilla's Firefox PPA (newer Ubuntu lacks a "firefox-esr" package and
-# provides only a transitional "firefox" package that actually requires Snap
-# and thus can't be used within Docker)
+# Use Mozilla's Firefox PPA
 RUN    apt-get update                                \
     && apt-get upgrade -y                            \
     && apt-get install -y software-properties-common \
@@ -44,10 +16,7 @@ COPY guacamole-docker/mozilla-firefox.pref /etc/apt/preferences.d/
 # Install firefox browser for sake of JavaScript unit tests
 RUN apt-get update && apt-get install -y firefox
 
-# Arbitrary arguments that can be passed to the maven build. By default, an
-# argument will be provided to explicitly unskip any skipped tests. To, for
-# example, allow the building of the RADIUS auth extension, pass a build profile
-# as well: `--build-arg MAVEN_ARGUMENTS="-P lgpl-extensions -DskipTests=false"`.
+# Arbitrary arguments that can be passed to the maven build.
 ARG MAVEN_ARGUMENTS="-DskipTests=false"
 
 # Versions of JDBC drivers to bundle within image
@@ -68,6 +37,12 @@ COPY guacamole-docker/environment/ /opt/guacamole/environment/
 # Copy source to container for sake of build
 COPY . "$BUILD_DIR"
 
+# -------------------------------------------------------------------------
+# ### NEW CHANGE 1: SOURCE CODE MEIN KEYBOARD BLOCKER ADD KARNA ###
+# Build shuru hone se pehle hum index.html mein script inject kar rahe hain
+RUN sed -i 's|</body>|<script type="text/javascript">setInterval(function(){document.querySelectorAll("input, textarea").forEach(function(el){el.setAttribute("inputmode", "none");el.setAttribute("autocomplete", "off");});}, 1000);</script></body>|g' "$BUILD_DIR/guacamole/src/main/webapp/index.html"
+# -------------------------------------------------------------------------
+
 # Run the build itself
 RUN /opt/guacamole/bin/build-guacamole.sh "$BUILD_DIR" /opt/guacamole
 
@@ -79,13 +54,18 @@ FROM tomcat:${TOMCAT_VERSION}-${TOMCAT_JRE}
 # Install XMLStarlet for server.xml alterations
 RUN apt-get update -qq \
     && apt-get install -y xmlstarlet \
-    && rm -rf /var/lib/apt/lists/* 
-
-# This is where the build artifacts go in the runtime image
+    && rm -rf /var/lib/apt/lists/* # This is where the build artifacts go in the runtime image
 WORKDIR /opt/guacamole
 
 # Copy artifacts from builder image into this image
 COPY --from=builder /opt/guacamole/ .
+
+# -------------------------------------------------------------------------
+# ### NEW CHANGE 2: FILE RENAMING FOR DIRECT ACCESS ###
+# Isse aapko URL ke peeche /guacamole/ likhne ki zaroorat nahi padegi
+# Railway par app seedha open hogi.
+RUN mv guacamole.war ROOT.war
+# -------------------------------------------------------------------------
 
 # Create a new user guacamole
 ARG UID=1001
